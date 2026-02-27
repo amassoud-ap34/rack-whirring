@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rack Whirring Designer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Rack Whirring Designer</h1>
+      <div class="actions">
+        <button id="newBtn" type="button">New</button>
+        <button id="saveJsonBtn" type="button">Save JSON</button>
+        <label class="file-btn" for="loadJsonInput">Load JSON</label>
+        <input id="loadJsonInput" type="file" accept="application/json" />
+        <button id="exportPngBtn" type="button">Export PNG</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="toolbar">
+        <h2>Tools</h2>
+        <div class="tool-grid">
+          <button class="tool active" data-tool="select">Select</button>
+          <button class="tool" data-tool="wire">Wire (Pin → Pin)</button>
+          <button class="tool" data-tool="rect">Square/Rect</button>
+          <button class="tool" data-tool="text">Text</button>
+          <button class="tool" data-tool="psw">PSW</button>
+          <button class="tool" data-tool="mainFilter">Main Filter</button>
+          <button class="tool" data-tool="circuitBreaker">Circuit Breaker</button>
+          <button class="tool" data-tool="whir">Whir Connector</button>
+        </div>
+
+        <h2>Style</h2>
+        <label>Stroke</label>
+        <input id="strokeColor" type="color" value="#111111" />
+
+        <label>Wire Color</label>
+        <input id="wireColor" type="color" value="#111111" />
+
+        <label>Wire Type</label>
+        <select id="wireType">
+          <option value="solid">Solid</option>
+          <option value="dashed">Dashed -----</option>
+        </select>
+
+        <label>Fill</label>
+        <input id="fillColor" type="color" value="#ffffff" />
+
+        <label>Line Width</label>
+        <input id="lineWidth" type="range" min="1" max="8" value="2" />
+        <div id="lineWidthValue" class="muted">2 px</div>
+
+        <h2>Selected Element</h2>
+        <label>Width (U)</label>
+        <input id="selectedWidthU" type="number" min="0.1" step="0.1" />
+
+        <label>Height (U)</label>
+        <input id="selectedHeightU" type="number" min="0.1" step="0.1" />
+
+        <label>Rotation (°)</label>
+        <input id="selectedRotation" type="number" step="5" />
+
+        <div class="tool-grid two-col">
+          <button id="applyTransformBtn" type="button">Apply</button>
+          <button id="deleteSelectedBtn" type="button">Delete Selected</button>
+        </div>
+
+        <p class="hint">
+          Tip: Use Wire tool and click one pin then another pin to connect.
+        </p>
+      </aside>
+
+      <section class="board-wrap">
+        <canvas id="board" width="1600" height="1000"></canvas>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
