@@ -38,6 +38,7 @@ const symbolPresets = {
   mainFilter: { widthU: 5, heightU: 5 },
   whir: { widthU: 1, heightU: 2 },
   circuitBreaker: { widthU: 2, heightU: 3 },
+  gnd: { widthU: 1.6, heightU: 1.8 },
 };
 
 function uid() {
@@ -165,6 +166,10 @@ function basePins(element) {
   if (element.kind === 'circuitBreaker') {
     pins.push({ id: 'top', label: '', x: element.width / 2, y: 0, side: 'top' });
     pins.push({ id: 'bottom', label: '', x: element.width / 2, y: element.height, side: 'bottom' });
+  }
+
+  if (element.kind === 'gnd') {
+    pins.push({ id: 'top', label: 'GND', x: element.width / 2, y: 0, side: 'top' });
   }
 
   return pins;
@@ -318,6 +323,22 @@ function drawSymbol(element) {
       ctx.beginPath();
       ctx.moveTo(-6, 0);
       ctx.lineTo(6, 0);
+      ctx.stroke();
+    }
+
+    if (element.kind === 'gnd') {
+      const topY = -element.height / 2 + 8;
+      const midY = topY + 8;
+      ctx.lineWidth = Math.max(1.2, element.lineWidth);
+      ctx.beginPath();
+      ctx.moveTo(0, topY);
+      ctx.lineTo(0, midY);
+      ctx.moveTo(-8, midY);
+      ctx.lineTo(8, midY);
+      ctx.moveTo(-5, midY + 4);
+      ctx.lineTo(5, midY + 4);
+      ctx.moveTo(-2.5, midY + 8);
+      ctx.lineTo(2.5, midY + 8);
       ctx.stroke();
     }
   });
