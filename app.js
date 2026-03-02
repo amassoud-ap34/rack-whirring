@@ -15,6 +15,9 @@ const ui = {
   tools: Array.from(document.querySelectorAll('.tool')),
   toolsGrid: $('toolsGrid'),
   addCustomElement: $('addCustomElementBtn'),
+  exportToolbar: $('exportToolbarBtn'),
+  importToolbar: $('importToolbarBtn'),
+  importToolbarInput: $('importToolbarInput'),
   strokeColor: $('strokeColor'),
   wireColor: $('wireColor'),
   wireType: $('wireType'),
@@ -189,6 +192,116 @@ function loadCustomElements() {
     });
   } catch {
     window.localStorage.removeItem(CUSTOM_ELEMENTS_STORAGE_KEY);
+  }
+}
+
+function createCustomKindFromName(name) {
+  const slug = (name || 'device').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return `custom-${slug || 'device'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function normalizeImportedCustomDefinition(definition) {
+  if (!definition || typeof definition !== 'object') {
+    return null;
+  }
+
+  const name = typeof definition.name === 'string' ? definition.name.trim() : '';
+  const abbr = typeof definition.abbr === 'string' ? definition.abbr.trim() : '';
+  const widthU = clampU(numericValue(definition.widthU, 2));
+  const heightU = clampU(numericValue(definition.heightU, 2));
+  const rawPins = Array.isArray(definition.pins) ? definition.pins : [];
+  const pins = rawPins
+    .map((pin, index) => ({
+      id: typeof pin?.id === 'string' && pin.id.trim() ? pin.id.trim() : `p${index + 1}`,
+      label: typeof pin?.label === 'string' ? pin.label : '',
+      side: ['top', 'right', 'bottom', 'left'].includes(pin?.side) ? pin.side : 'bottom',
+      xRatio: Math.min(1, Math.max(0, numericValue(pin?.xRatio, 0.5))),
+      yRatio: Math.min(1, Math.max(0, numericValue(pin?.yRatio, 0.5))),
+    }))
+    .filter((pin) => pin);
+
+  if (!name || pins.length === 0) {
+    return null;
+  }
+
+  const importedKind =
+    typeof definition.kind === 'string' && definition.kind.startsWith('custom-')
+      ? definition.kind
+      : createCustomKindFromName(name);
+
+  const kind = customElementDefs[importedKind]
+    ? createCustomKindFromName(name)
+    : importedKind;
+
+  return {
+    kind,
+    name,
+    abbr: abbr || name.slice(0, 4).toUpperCase(),
+    widthU,
+    heightU,
+    pins,
+  };
+}
+
+function exportToolbarCustomElements() {
+  const definitions = Object.values(customElementDefs);
+  if (definitions.length === 0) {
+    window.alert('No custom elements to export.');
+    return;
+  }
+
+  const payload = {
+    type: 'rack-whirring-toolbar',
+    version: 1,
+    customElements: definitions,
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `rack-whirring-toolbar-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function importToolbarCustomElements(event) {
+  const [file] = event.target.files || [];
+  if (!file) return;
+
+  try {
+    const parsed = JSON.parse(await file.text());
+    const source = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.customElements)
+        ? parsed.customElements
+        : [];
+
+    if (source.length === 0) {
+      throw new Error('Invalid toolbar file: no custom elements found.');
+    }
+
+    let importedCount = 0;
+    source.forEach((definition) => {
+      const normalized = normalizeImportedCustomDefinition(definition);
+      if (!normalized) return;
+      registerCustomElement(normalized, false);
+      importedCount += 1;
+    });
+
+    if (importedCount === 0) {
+      throw new Error('No valid custom elements were found in file.');
+    }
+
+    saveCustomElements();
+    redraw();
+    window.alert(`Imported ${importedCount} custom element(s).`);
+  } catch (error) {
+    window.alert(`Could not import toolbar file: ${error.message}`);
+  } finally {
+    event.target.value = '';
   }
 }
 
@@ -1819,6 +1932,15 @@ function bindEvents() {
 
   if (ui.addCustomElement) {
     ui.addCustomElement.addEventListener('click', createCustomElement);
+  }
+
+  if (ui.exportToolbar) {
+    ui.exportToolbar.addEventListener('click', exportToolbarCustomElements);
+  }
+
+  if (ui.importToolbar && ui.importToolbarInput) {
+    ui.importToolbar.addEventListener('click', () => ui.importToolbarInput.click());
+    ui.importToolbarInput.addEventListener('change', importToolbarCustomElements);
   }
 
   ui.lineWidth.addEventListener('input', () => {
