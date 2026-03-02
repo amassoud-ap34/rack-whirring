@@ -55,7 +55,7 @@ button:hover,
 
 .layout {
   display: grid;
-  grid-template-columns: 230px 1fr;
+  grid-template-columns: 230px 1fr 240px;
   height: calc(100vh - 59px);
 }
 
@@ -81,6 +81,25 @@ button:hover,
 .tool.active {
   background: #e9f2ff;
   border-color: #a5c2ef;
+}
+
+.tool[data-custom-tool='1'] {
+  position: relative;
+  padding-right: 24px;
+}
+
+.custom-tool-remove {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  line-height: 1;
+  color: #7c8796;
+}
+
+.tool[data-custom-tool='1']:hover .custom-tool-remove {
+  color: #dc2626;
 }
 
 .toolbar label {
@@ -126,6 +145,61 @@ button:hover,
 .board-wrap {
   overflow: auto;
   padding: 16px;
+}
+
+.summary-panel {
+  padding: 14px;
+  border-left: 1px solid #d9dee5;
+  background: #f8fafc;
+  overflow-y: auto;
+}
+
+.summary-panel h2 {
+  margin: 4px 0 10px;
+  font-size: 14px;
+  color: #1f2a37;
+}
+
+.count-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.count-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.count-name {
+  color: #263445;
+  line-height: 1.2;
+}
+
+.count-value {
+  font-weight: 600;
+  background: #eef3f9;
+  border: 1px solid #d6e0ee;
+  border-radius: 999px;
+  min-width: 28px;
+  text-align: center;
+  padding: 2px 8px;
+}
+
+.count-empty {
+  color: #5f6c7b;
+  font-size: 12px;
+  border: 1px dashed #d9dee5;
+  border-radius: 6px;
+  padding: 8px;
 }
 
 #board {

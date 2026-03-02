@@ -3,6 +3,8 @@ const PIN_STEM = 10;
 const PIN_RADIUS = 4;
 const NODE_RADIUS = 4;
 const MIN_U = 0.1;
+const ELEMENT_LABEL_GAP = 8;
+const CUSTOM_ELEMENTS_STORAGE_KEY = 'rack-whirring-custom-elements-v1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -11,6 +13,8 @@ const ctx = canvas.getContext('2d');
 
 const ui = {
   tools: Array.from(document.querySelectorAll('.tool')),
+  toolsGrid: $('toolsGrid'),
+  addCustomElement: $('addCustomElementBtn'),
   strokeColor: $('strokeColor'),
   wireColor: $('wireColor'),
   wireType: $('wireType'),
@@ -27,15 +31,412 @@ const ui = {
   selectedRotation: $('selectedRotation'),
   applyTransform: $('applyTransformBtn'),
   deleteSelected: $('deleteSelectedBtn'),
+  elementCountsList: $('elementCountsList'),
 };
 
 const symbolPresets = {
-  psw: { widthU: 12, heightU: 2 },
-  mainFilter: { widthU: 5, heightU: 5 },
-  whir: { widthU: 1, heightU: 2 },
-  circuitBreaker: { widthU: 2, heightU: 3 },
   gnd: { widthU: 1.6, heightU: 1.8 },
+  socketOutlet: { widthU: 2.4, heightU: 2.4 },
+  powerSupplyGroup: { widthU: 3.2, heightU: 5.6 },
+  circuitBreakerGroup: { widthU: 5, heightU: 3 },
+  clampsGroup: { widthU: 2.4, heightU: 4.5 },
+  powerSwitcher: { widthU: 2.6, heightU: 2.2 },
 };
+
+const symbolLabels = {
+  gnd: 'GND',
+  socketOutlet: 'SO',
+  powerSupplyGroup: 'PS',
+  circuitBreakerGroup: 'CB',
+  clampsGroup: 'CL',
+  powerSwitcher: 'PSW',
+};
+
+const symbolNames = {
+  gnd: 'GND',
+  socketOutlet: 'Socket Outlet',
+  powerSupplyGroup: 'Power Supply (Group)',
+  circuitBreakerGroup: 'Circuit Breaker (Group)',
+  clampsGroup: 'Clamps (Group)',
+  powerSwitcher: 'Power Switcher',
+};
+
+const legacyKindMap = {
+  psw: 'powerSwitcher',
+  whir: 'socketOutlet',
+  powerSwitcher: 'powerSwitcher',
+  circuitBreaker: 'circuitBreakerGroup',
+  nodeSymbol: 'socketOutlet',
+  mainFilter: 'socketOutlet',
+  fuse: 'socketOutlet',
+  plfPsw: 'powerSwitcher',
+};
+
+const customElementDefs = {};
+
+function normalizeSymbolKind(kind) {
+  const normalized = legacyKindMap[kind] || kind;
+  if (typeof normalized === 'string' && normalized.startsWith('custom-')) {
+    return normalized;
+  }
+  return symbolPresets[normalized] ? normalized : 'socketOutlet';
+}
+
+function refreshToolsList() {
+  ui.tools = Array.from(document.querySelectorAll('.tool'));
+}
+
+function customToolButtonId(kind) {
+  return `tool-${kind}`;
+}
+
+function saveCustomElements() {
+  const defs = Object.values(customElementDefs);
+  window.localStorage.setItem(CUSTOM_ELEMENTS_STORAGE_KEY, JSON.stringify(defs));
+}
+
+function addCustomToolButton(definition) {
+  if (!ui.toolsGrid) return;
+  if ($(customToolButtonId(definition.kind))) return;
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'tool';
+  button.id = customToolButtonId(definition.kind);
+  button.dataset.tool = definition.kind;
+  button.dataset.customTool = '1';
+  button.textContent = definition.name;
+  button.title = 'Click to use. Right-click or ✕ to delete.';
+
+  const remove = document.createElement('span');
+  remove.className = 'custom-tool-remove';
+  remove.setAttribute('role', 'button');
+  remove.setAttribute('aria-label', `Delete ${definition.name}`);
+  remove.textContent = '✕';
+  button.appendChild(remove);
+
+  const addBtn = ui.addCustomElement;
+  if (addBtn && addBtn.parentElement === ui.toolsGrid) {
+    ui.toolsGrid.insertBefore(button, addBtn);
+  } else {
+    ui.toolsGrid.appendChild(button);
+  }
+}
+
+function confirmDeleteCustomElement(kind) {
+  const definition = customElementDefs[kind];
+  if (!definition) {
+    return;
+  }
+
+  const confirmed = window.confirm(`Delete custom element "${definition.name}" from toolbar?`);
+  if (!confirmed) {
+    return;
+  }
+
+  unregisterCustomElement(kind);
+}
+
+function removeCustomToolButton(kind) {
+  const button = $(customToolButtonId(kind));
+  if (button?.parentElement) {
+    button.parentElement.removeChild(button);
+  }
+}
+
+function unregisterCustomElement(kind) {
+  if (!customElementDefs[kind]) return;
+
+  delete customElementDefs[kind];
+  delete symbolPresets[kind];
+  delete symbolLabels[kind];
+  removeCustomToolButton(kind);
+  saveCustomElements();
+  refreshToolsList();
+
+  if (state.activeTool === kind) {
+    activateTool('select');
+  } else {
+    redraw();
+  }
+}
+
+function registerCustomElement(definition, persist = true) {
+  if (!definition?.kind) return;
+
+  customElementDefs[definition.kind] = definition;
+  symbolPresets[definition.kind] = {
+    widthU: definition.widthU,
+    heightU: definition.heightU,
+  };
+  symbolLabels[definition.kind] = definition.abbr || definition.name;
+
+  addCustomToolButton(definition);
+  refreshToolsList();
+  if (persist) saveCustomElements();
+}
+
+function loadCustomElements() {
+  const raw = window.localStorage.getItem(CUSTOM_ELEMENTS_STORAGE_KEY);
+  if (!raw) return;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    parsed.forEach((definition) => {
+      if (!definition?.kind || !Array.isArray(definition.pins)) return;
+      registerCustomElement(definition, false);
+    });
+  } catch {
+    window.localStorage.removeItem(CUSTOM_ELEMENTS_STORAGE_KEY);
+  }
+}
+
+function makePinsForSide(side, count) {
+  const pins = [];
+  for (let i = 1; i <= count; i += 1) {
+    const ratio = i / (count + 1);
+    let xRatio = 0;
+    let yRatio = 0;
+
+    if (side === 'top') {
+      xRatio = ratio;
+      yRatio = 0;
+    } else if (side === 'right') {
+      xRatio = 1;
+      yRatio = ratio;
+    } else if (side === 'bottom') {
+      xRatio = ratio;
+      yRatio = 1;
+    } else {
+      xRatio = 0;
+      yRatio = ratio;
+    }
+
+    pins.push({
+      id: `${side}${i}`,
+      label: `${side[0].toUpperCase()}${i}`,
+      side,
+      xRatio,
+      yRatio,
+    });
+  }
+  return pins;
+}
+
+function promptCustomElementDefinition() {
+  const nameInput = window.prompt('Custom element name:', 'Custom Device');
+  if (!nameInput) return null;
+
+  const name = nameInput.trim();
+  if (!name) return null;
+
+  const suggestedAbbr = name
+    .split(/\s+/)
+    .map((part) => part[0] || '')
+    .join('')
+    .toUpperCase()
+    .slice(0, 4) || 'CST';
+
+  const abbrInput = window.prompt('Element abbreviation (label on canvas):', suggestedAbbr);
+  if (!abbrInput) return null;
+  const abbr = abbrInput.trim() || suggestedAbbr;
+
+  const widthU = clampU(numericValue(window.prompt('Width in U:', '2.5'), 2.5));
+  const heightU = clampU(numericValue(window.prompt('Height in U:', '2.5'), 2.5));
+
+  const topPins = nonNegativeIntValue(window.prompt('Top pins count (0+):', '0'), 0);
+  const rightPins = nonNegativeIntValue(window.prompt('Right pins count (0+):', '0'), 0);
+  const bottomPins = nonNegativeIntValue(window.prompt('Bottom pins count (0+):', '1'), 1);
+  const leftPins = nonNegativeIntValue(window.prompt('Left pins count (0+):', '1'), 1);
+
+  const pins = [
+    ...makePinsForSide('top', Math.max(0, topPins)),
+    ...makePinsForSide('right', Math.max(0, rightPins)),
+    ...makePinsForSide('bottom', Math.max(0, bottomPins)),
+    ...makePinsForSide('left', Math.max(0, leftPins)),
+  ];
+
+  if (pins.length === 0) {
+    window.alert('Custom element needs at least one pin.');
+    return null;
+  }
+
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+  return {
+    kind: `custom-${slug || 'device'}-${Date.now().toString(36)}`,
+    name,
+    abbr,
+    widthU,
+    heightU,
+    pins,
+  };
+}
+
+function createCustomElement() {
+  const definition = promptCustomElementDefinition();
+  if (!definition) return;
+
+  registerCustomElement(definition, true);
+  activateTool(definition.kind);
+}
+
+function numericValue(input, fallback) {
+  const parsed = Number(input);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function positiveIntValue(input, fallback) {
+  const parsed = Number(input);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.round(parsed));
+}
+
+function nonNegativeIntValue(input, fallback) {
+  const parsed = Number(input);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.round(parsed));
+}
+
+function symbolDisplayLabel(element) {
+  if (typeof element.kind === 'string' && element.kind.startsWith('custom-')) {
+    return element.meta?.label || symbolLabels[element.kind] || 'CST';
+  }
+
+  if (element.kind === 'powerSupplyGroup') {
+    const qty = element.meta?.qty ?? 1;
+    return `PS x${qty}`;
+  }
+
+  if (element.kind === 'circuitBreakerGroup') {
+    const amp = element.meta?.amp ?? 16;
+    const qty = element.meta?.qty ?? 1;
+    return qty > 1 ? `CB ${amp}A x${qty}` : `CB ${amp}A`;
+  }
+
+  if (element.kind === 'clampsGroup') {
+    const qty = element.meta?.qty ?? 1;
+    return `CL x${qty}`;
+  }
+
+  return symbolLabels[element.kind] || element.kind;
+}
+
+function symbolDisplayName(element) {
+  if (typeof element.kind === 'string' && element.kind.startsWith('custom-')) {
+    return element.meta?.customName || customElementDefs[element.kind]?.name || element.meta?.label || 'Custom Element';
+  }
+
+  return symbolNames[element.kind] || symbolLabels[element.kind] || element.kind;
+}
+
+function updateElementCountsPanel() {
+  if (!ui.elementCountsList) return;
+
+  const counts = new Map();
+
+  const isGroupKind = (kind) => typeof kind === 'string' && kind.endsWith('Group');
+
+  const groupSignature = (element) => {
+    if (!isGroupKind(element.kind)) {
+      return null;
+    }
+
+    if (element.kind === 'powerSupplyGroup') {
+      const inAc = Number.isFinite(Number(element.meta?.inAc)) ? Number(element.meta.inAc) : 230;
+      const outVolt = Number.isFinite(Number(element.meta?.outVolt)) ? Number(element.meta.outVolt) : 12;
+      const outAmp = Number.isFinite(Number(element.meta?.outAmp)) ? Number(element.meta.outAmp) : 3.3;
+      return {
+        key: `${inAc}|${outVolt}|${outAmp}`,
+        label: `${inAc}V to ${outVolt}V/${outAmp}A`,
+      };
+    }
+
+    if (element.kind === 'circuitBreakerGroup') {
+      const amp = Number.isFinite(Number(element.meta?.amp)) ? Number(element.meta.amp) : 16;
+      return {
+        key: `${amp}`,
+        label: `${amp}A`,
+      };
+    }
+
+    const metaEntries = Object.entries(element.meta || {})
+      .filter(([key]) => key !== 'qty')
+      .sort(([a], [b]) => a.localeCompare(b));
+
+    if (metaEntries.length === 0) {
+      return { key: 'default', label: '' };
+    }
+
+    return {
+      key: JSON.stringify(metaEntries),
+      label: metaEntries.map(([key, value]) => `${key}:${value}`).join(', '),
+    };
+  };
+
+  const countKey = (element) => {
+    const signature = groupSignature(element);
+    if (signature) {
+      return `${element.kind}|${signature.key}`;
+    }
+    return element.kind;
+  };
+
+  const countName = (element) => {
+    const signature = groupSignature(element);
+    if (signature && signature.label) {
+      return `${symbolDisplayName(element)} (${signature.label})`;
+    }
+    return symbolDisplayName(element);
+  };
+
+  const usageUnits = (element) => {
+    const qty = Number(element.meta?.qty);
+    if (Number.isFinite(qty) && qty > 0) {
+      return Math.round(qty);
+    }
+    return 1;
+  };
+
+  state.elements.forEach((element) => {
+    if (element.type !== 'symbol') return;
+
+    const key = countKey(element);
+    if (!counts.has(key)) {
+      counts.set(key, { name: countName(element), count: 0 });
+    }
+    counts.get(key).count += usageUnits(element);
+  });
+
+  ui.elementCountsList.innerHTML = '';
+
+  if (counts.size === 0) {
+    const emptyItem = document.createElement('li');
+    emptyItem.className = 'count-empty';
+    emptyItem.textContent = 'No elements placed yet.';
+    ui.elementCountsList.appendChild(emptyItem);
+    return;
+  }
+
+  const rows = Array.from(counts.values()).sort((a, b) => a.name.localeCompare(b.name));
+  rows.forEach((entry) => {
+    const item = document.createElement('li');
+    item.className = 'count-row';
+
+    const name = document.createElement('span');
+    name.className = 'count-name';
+    name.textContent = entry.name;
+
+    const value = document.createElement('span');
+    value.className = 'count-value';
+    value.textContent = String(entry.count);
+
+    item.appendChild(name);
+    item.appendChild(value);
+    ui.elementCountsList.appendChild(item);
+  });
+}
 
 const state = {
   activeTool: 'select',
@@ -47,6 +448,7 @@ const state = {
   selected: null,
   dragOffsetX: 0,
   dragOffsetY: 0,
+  labelDrag: null,
   wireDraft: null,
   hoveredPin: null,
 };
@@ -86,7 +488,7 @@ function normalizeOldShape(shape) {
     return {
       id: shape.id,
       type: 'symbol',
-      kind: shape.symbolKind || shape.kind || 'whir',
+      kind: normalizeSymbolKind(shape.symbolKind || shape.kind || 'socketOutlet'),
       x,
       y,
       width: Math.abs(shape.x2 - shape.x1),
@@ -95,6 +497,9 @@ function normalizeOldShape(shape) {
       stroke: shape.stroke || '#111111',
       fill: shape.fill || '#ffffff',
       lineWidth: shape.lineWidth || 2,
+      meta: shape.meta || null,
+      labelOffsetX: 0,
+      labelOffsetY: 0,
     };
   }
 
@@ -137,7 +542,17 @@ function normalizeConnection(connection) {
 
 function applyLoadedData(parsed) {
   if (Array.isArray(parsed.elements)) {
-    state.elements = parsed.elements;
+    state.elements = parsed.elements.map((element) => {
+      if (element?.type !== 'symbol') {
+        return element;
+      }
+      return {
+        ...element,
+        kind: normalizeSymbolKind(element.kind),
+        labelOffsetX: numericValue(element.labelOffsetX, 0),
+        labelOffsetY: numericValue(element.labelOffsetY, 0),
+      };
+    });
     state.nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
     state.connections = Array.isArray(parsed.connections)
       ? parsed.connections.map(normalizeConnection)
@@ -159,6 +574,7 @@ function resetTransientState() {
   state.selected = null;
   state.hoveredPin = null;
   state.wireDraft = null;
+  state.labelDrag = null;
   state.draftShape = null;
   state.pointerDown = false;
   setSelectedUI(null);
@@ -233,26 +649,39 @@ function sideVector(side) {
 function basePins(element) {
   const pins = [];
 
-  if (element.kind === 'psw') {
-    pins.push({ id: 'ac230', label: 'AC 230V', x: 0, y: 0, side: 'top' });
-    pins.push({ id: 'eth', label: 'ETHERNET', x: element.width, y: 0, side: 'top' });
-    for (let i = 1; i <= 12; i += 1) {
-      const ratio = i / 13;
-      pins.push({ id: `p${i}`, label: `P${i}`, x: Math.round(element.width * ratio), y: element.height, side: 'bottom' });
-    }
+  const customDef = customElementDefs[element.kind] || element.meta?.customDef;
+  if (customDef && Array.isArray(customDef.pins)) {
+    return customDef.pins.map((pin) => ({
+      id: pin.id,
+      label: pin.label || '',
+      x: Math.round(element.width * pin.xRatio),
+      y: Math.round(element.height * pin.yRatio),
+      side: pin.side,
+    }));
   }
 
-  if (element.kind === 'mainFilter') {
-    pins.push({ id: 'l', label: 'L', x: 0, y: element.height * 0.2, side: 'left' });
-    pins.push({ id: 'n', label: 'N', x: 0, y: element.height * 0.5, side: 'left' });
-    pins.push({ id: 'pe', label: 'PE', x: 0, y: element.height * 0.8, side: 'left' });
-    pins.push({ id: 'out', label: 'OUT', x: element.width, y: element.height * 0.35, side: 'right' });
-    pins.push({ id: 'gnd', label: 'GND', x: element.width, y: element.height * 0.7, side: 'right' });
+  if (element.kind === 'socketOutlet') {
+    pins.push({ id: 'in', label: 'IN', x: element.width / 2, y: element.height, side: 'bottom' });
   }
 
-  if (element.kind === 'whir' || element.kind === 'circuitBreaker') {
+  if (element.kind === 'powerSupplyGroup') {
+    pins.push({ id: 'in', label: 'IN', x: element.width / 2, y: 0, side: 'top' });
+    pins.push({ id: 'out', label: 'OUT', x: element.width / 2, y: element.height, side: 'bottom' });
+  }
+
+  if (element.kind === 'circuitBreakerGroup') {
     pins.push({ id: 'top', label: '', x: element.width / 2, y: 0, side: 'top' });
     pins.push({ id: 'bottom', label: '', x: element.width / 2, y: element.height, side: 'bottom' });
+  }
+
+  if (element.kind === 'clampsGroup') {
+    pins.push({ id: 'in', label: 'IN', x: element.width / 2, y: 0, side: 'top' });
+    pins.push({ id: 'out', label: 'OUT', x: element.width / 2, y: element.height, side: 'bottom' });
+  }
+
+  if (element.kind === 'powerSwitcher') {
+    pins.push({ id: 'in', label: 'IN', x: 0, y: element.height / 2, side: 'left' });
+    pins.push({ id: 'out', label: 'OUT', x: element.width, y: element.height / 2, side: 'right' });
   }
 
   if (element.kind === 'gnd') {
@@ -346,7 +775,7 @@ function drawRectElement(element) {
 function drawTextElement(element) {
   withElementTransform(element, () => {
     ctx.fillStyle = element.stroke;
-    ctx.font = `${Math.max(12, element.lineWidth * 6)}px Arial`;
+    ctx.font = `${Math.max(14, element.lineWidth * 5)}px Arial`;
     ctx.fillText(element.text, -element.width / 2, 0);
   });
 }
@@ -360,26 +789,7 @@ function drawSymbolBody(element) {
   ctx.lineWidth = element.lineWidth;
   ctx.strokeRect(-element.width / 2, -element.height / 2, element.width, element.height);
 
-  ctx.fillStyle = element.stroke;
-  ctx.font = '12px Arial';
-
-  if (element.kind === 'psw') {
-    ctx.fillText('PSW', -element.width / 2 + 8, -element.height / 2 + 16);
-  }
-
-  if (element.kind === 'mainFilter') {
-    ctx.fillText('Main Filter', -element.width / 2 + 8, -element.height / 2 + 16);
-  }
-
-  if (element.kind === 'whir') {
-    ctx.lineWidth = Math.max(1.2, element.lineWidth);
-    ctx.beginPath();
-    ctx.moveTo(0, -element.height / 2 + 8);
-    ctx.lineTo(0, element.height / 2 - 8);
-    ctx.stroke();
-  }
-
-  if (element.kind === 'circuitBreaker') {
+  if (element.kind === 'circuitBreakerGroup') {
     ctx.lineWidth = Math.max(1.2, element.lineWidth);
     ctx.beginPath();
     ctx.moveTo(0, -element.height / 2 + 8);
@@ -391,6 +801,55 @@ function drawSymbolBody(element) {
     ctx.beginPath();
     ctx.moveTo(-6, 0);
     ctx.lineTo(6, 0);
+    ctx.stroke();
+  }
+
+  if (element.kind === 'socketOutlet') {
+    ctx.lineWidth = Math.max(1.2, element.lineWidth);
+    ctx.beginPath();
+    ctx.arc(0, 2, Math.min(element.width, element.height) * 0.22, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  if (element.kind === 'powerSupplyGroup') {
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-element.width / 2 + 6, -element.height / 2 + 28, element.width - 12, element.height - 36);
+    const inAc = element.meta?.inAc ?? 230;
+    const outVolt = element.meta?.outVolt ?? 12;
+    const outAmp = element.meta?.outAmp ?? 3.3;
+    ctx.fillStyle = element.stroke;
+    ctx.font = '13px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${inAc}V AC`, 0, -2);
+    ctx.fillText('to', 0, 14);
+    ctx.fillText(`${outVolt}V / ${outAmp}A DC`, 0, 30);
+    ctx.beginPath();
+    ctx.moveTo(-7, 14);
+    ctx.lineTo(7, 14);
+    ctx.lineTo(3, 10);
+    ctx.moveTo(7, 14);
+    ctx.lineTo(3, 18);
+    ctx.stroke();
+  }
+
+  if (element.kind === 'clampsGroup') {
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, -10);
+    ctx.lineTo(0, 10);
+    ctx.stroke();
+  }
+
+  if (element.kind === 'powerSwitcher') {
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-10, 0);
+    ctx.lineTo(-3, 0);
+    ctx.moveTo(-2, -4);
+    ctx.lineTo(2, 4);
+    ctx.moveTo(3, 0);
+    ctx.lineTo(10, 0);
     ctx.stroke();
   }
 
@@ -587,6 +1046,62 @@ function getElementBounds(element) {
   };
 }
 
+function getSymbolLabelLayout(element) {
+  const bounds = getElementBounds(element);
+  const label = symbolDisplayLabel(element);
+  const x = bounds.x + bounds.w + ELEMENT_LABEL_GAP + numericValue(element.labelOffsetX, 0);
+  const y = bounds.y - 2 + numericValue(element.labelOffsetY, 0);
+
+  ctx.save();
+  ctx.font = '12px Arial';
+  const width = ctx.measureText(label).width;
+  ctx.restore();
+
+  return {
+    label,
+    x,
+    y,
+    width,
+    height: 14,
+  };
+}
+
+function drawSymbolLabel(element, selectedElement) {
+  const label = getSymbolLabelLayout(element);
+
+  ctx.save();
+  ctx.font = '12px Arial';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.strokeStyle = selectedElement ? '#2563eb' : '#d0d7de';
+  ctx.lineWidth = 1;
+  ctx.fillRect(label.x - 4, label.y - 2, label.width + 8, label.height + 4);
+  ctx.strokeRect(label.x - 4, label.y - 2, label.width + 8, label.height + 4);
+  ctx.fillStyle = element.stroke;
+  ctx.fillText(label.label, label.x, label.y);
+  ctx.restore();
+}
+
+function findSymbolLabelHit(x, y) {
+  for (let i = state.elements.length - 1; i >= 0; i -= 1) {
+    const element = state.elements[i];
+    if (element.type !== 'symbol') continue;
+
+    const label = getSymbolLabelLayout(element);
+    const left = label.x - 4;
+    const top = label.y - 2;
+    const right = left + label.width + 8;
+    const bottom = top + label.height + 4;
+
+    if (x >= left && x <= right && y >= top && y <= bottom) {
+      return element;
+    }
+  }
+
+  return null;
+}
+
 function drawElementSelection(element) {
   const b = getElementBounds(element);
   ctx.save();
@@ -735,6 +1250,7 @@ function redraw() {
     const selectedElement =
       state.selected && state.selected.type === 'element' && state.selected.id === element.id;
     if (selectedElement) drawElementSelection(element);
+    if (element.type === 'symbol') drawSymbolLabel(element, selectedElement);
   });
 
   if (state.draftShape) drawRectElement(state.draftShape);
@@ -772,6 +1288,8 @@ function redraw() {
   }
 
   if (state.hoveredPin) drawPinLabel(state.hoveredPin);
+
+  updateElementCountsPanel();
 }
 
 function setSelectedUI(element) {
@@ -799,6 +1317,7 @@ function selectElement(element) {
 function activateTool(tool) {
   state.activeTool = tool;
   state.wireDraft = null;
+  refreshToolsList();
   ui.tools.forEach((btn) => btn.classList.toggle('active', btn.dataset.tool === tool));
   redraw();
 }
@@ -839,10 +1358,52 @@ function deleteSelected() {
 
 function placeSymbol(kind, x, y) {
   const preset = symbolPresets[kind];
+  let meta = null;
+
+  const customDef = customElementDefs[kind];
+  if (customDef) {
+    meta = {
+      label: customDef.abbr || customDef.name,
+      customName: customDef.name,
+      customDef: {
+        pins: customDef.pins,
+      },
+    };
+  }
+
+  if (kind === 'powerSupplyGroup') {
+    const inAcInput = window.prompt('Power Supply input AC voltage (V):', '230');
+    const outVoltInput = window.prompt('Power Supply output DC voltage (V):', '12');
+    const outAmpInput = window.prompt('Power Supply output current (A):', '3.3');
+    const qtyInput = window.prompt('How many identical power supplies in this group?', '1');
+    meta = {
+      inAc: numericValue(inAcInput, 230),
+      outVolt: numericValue(outVoltInput, 12),
+      outAmp: numericValue(outAmpInput, 3.3),
+      qty: positiveIntValue(qtyInput, 1),
+    };
+  }
+
+  if (kind === 'circuitBreakerGroup') {
+    const ampInput = window.prompt('Circuit breaker current (A):', '16');
+    const qtyInput = window.prompt('How many identical circuit breakers in this group?', '1');
+    meta = {
+      amp: numericValue(ampInput, 16),
+      qty: positiveIntValue(qtyInput, 1),
+    };
+  }
+
+  if (kind === 'clampsGroup') {
+    const qtyInput = window.prompt('How many identical clamps in this group?', '1');
+    meta = {
+      qty: positiveIntValue(qtyInput, 1),
+    };
+  }
+
   const element = {
     id: uid(),
     type: 'symbol',
-    kind,
+    kind: normalizeSymbolKind(kind),
     x,
     y,
     width: toPixels(preset.widthU),
@@ -851,6 +1412,9 @@ function placeSymbol(kind, x, y) {
     stroke: ui.strokeColor.value,
     fill: ui.fillColor.value,
     lineWidth: Number(ui.lineWidth.value),
+    meta,
+    labelOffsetX: 0,
+    labelOffsetY: 0,
   };
   state.elements.push(element);
   selectElement(element);
@@ -1025,9 +1589,18 @@ function onPointerDown(event) {
   }
 
   if (state.activeTool === 'select') {
+    const labelHit = findSymbolLabelHit(pos.x, pos.y);
+    if (labelHit) {
+      selectElement(labelHit);
+      state.labelDrag = { elementId: labelHit.id, lastX: pos.x, lastY: pos.y };
+      redraw();
+      return;
+    }
+
     const pickedElement = pickElement(pos.x, pos.y);
     if (pickedElement) {
       selectElement(pickedElement);
+      state.labelDrag = null;
       state.dragOffsetX = pos.x;
       state.dragOffsetY = pos.y;
       redraw();
@@ -1080,6 +1653,20 @@ function onPointerMove(event) {
     return;
   }
 
+  if (state.activeTool === 'select' && state.labelDrag) {
+    const element = state.elements.find((item) => item.id === state.labelDrag.elementId);
+    if (!element) return;
+
+    const dx = pos.x - state.labelDrag.lastX;
+    const dy = pos.y - state.labelDrag.lastY;
+    element.labelOffsetX = numericValue(element.labelOffsetX, 0) + dx;
+    element.labelOffsetY = numericValue(element.labelOffsetY, 0) + dy;
+    state.labelDrag.lastX = pos.x;
+    state.labelDrag.lastY = pos.y;
+    redraw();
+    return;
+  }
+
   if (state.activeTool === 'select' && state.selected && state.selected.type === 'element') {
     const element = state.elements.find((item) => item.id === state.selected.id);
     if (!element) return;
@@ -1102,6 +1689,7 @@ function onPointerMove(event) {
 
 function onPointerUp() {
   state.pointerDown = false;
+  state.labelDrag = null;
 
   if (state.draftShape) {
     if (Math.abs(state.draftShape.width) > 2 && Math.abs(state.draftShape.height) > 2) {
@@ -1124,6 +1712,7 @@ function onPointerUp() {
 
 function onPointerLeave() {
   state.pointerDown = false;
+  state.labelDrag = null;
   state.hoveredPin = null;
   redraw();
 }
@@ -1197,9 +1786,40 @@ async function shareLink() {
 }
 
 function bindEvents() {
-  ui.tools.forEach((btn) =>
-    btn.addEventListener('click', () => activateTool(btn.dataset.tool)),
-  );
+  refreshToolsList();
+
+  document.addEventListener('click', (event) => {
+    const removeButton = event.target.closest('.custom-tool-remove');
+    if (removeButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const toolButton = removeButton.closest('.tool[data-custom-tool="1"]');
+      if (toolButton?.dataset.tool) {
+        confirmDeleteCustomElement(toolButton.dataset.tool);
+      }
+      return;
+    }
+
+    const toolButton = event.target.closest('.tool');
+    if (!toolButton || !toolButton.dataset.tool) {
+      return;
+    }
+    activateTool(toolButton.dataset.tool);
+  });
+
+  document.addEventListener('contextmenu', (event) => {
+    const toolButton = event.target.closest('.tool[data-custom-tool="1"]');
+    if (!toolButton) {
+      return;
+    }
+
+    event.preventDefault();
+    confirmDeleteCustomElement(toolButton.dataset.tool);
+  });
+
+  if (ui.addCustomElement) {
+    ui.addCustomElement.addEventListener('click', createCustomElement);
+  }
 
   ui.lineWidth.addEventListener('input', () => {
     ui.lineWidthValue.textContent = `${ui.lineWidth.value} px`;
@@ -1230,6 +1850,7 @@ function bindEvents() {
   });
 }
 
+loadCustomElements();
 bindEvents();
 tryLoadFromShareLink();
 redraw();

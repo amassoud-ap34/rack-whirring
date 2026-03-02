@@ -10,6 +10,9 @@
     <header class="topbar">
       <h1>Rack Whirring Designer</h1>
       <div class="actions">
+        <button class="tool active" data-tool="select" type="button">Select</button>
+        <button id="applyTransformBtn" type="button">Apply</button>
+        <button id="deleteSelectedBtn" type="button">Delete Selected</button>
         <button id="newBtn" type="button">New</button>
         <button id="shareLinkBtn" type="button">Share Link</button>
         <button id="saveJsonBtn" type="button">Save JSON</button>
@@ -22,16 +25,16 @@
     <main class="layout">
       <aside class="toolbar">
         <h2>Tools</h2>
-        <div class="tool-grid">
-          <button class="tool active" data-tool="select">Select</button>
+        <div id="toolsGrid" class="tool-grid">
           <button class="tool" data-tool="wire">Wire (Pin → Pin)</button>
-          <button class="tool" data-tool="rect">Square/Rect</button>
           <button class="tool" data-tool="text">Text</button>
-          <button class="tool" data-tool="psw">PSW</button>
-          <button class="tool" data-tool="mainFilter">Main Filter</button>
-          <button class="tool" data-tool="circuitBreaker">Circuit Breaker</button>
-          <button class="tool" data-tool="whir">Whir Connector</button>
           <button class="tool" data-tool="gnd">GND</button>
+          <button class="tool" data-tool="socketOutlet">Socket Outlet</button>
+          <button class="tool" data-tool="powerSupplyGroup">Power Supply (Group)</button>
+          <button class="tool" data-tool="circuitBreakerGroup">Circuit Breaker (Group)</button>
+          <button class="tool" data-tool="clampsGroup">Clamps (Group)</button>
+          <button class="tool" data-tool="powerSwitcher">Power Switcher</button>
+          <button id="addCustomElementBtn" type="button">+ Custom Element</button>
         </div>
 
         <h2>Style</h2>
@@ -64,11 +67,6 @@
         <label>Rotation (°)</label>
         <input id="selectedRotation" type="number" step="5" />
 
-        <div class="tool-grid two-col">
-          <button id="applyTransformBtn" type="button">Apply</button>
-          <button id="deleteSelectedBtn" type="button">Delete Selected</button>
-        </div>
-
         <p class="hint">
           Tip: Use Wire tool and click one pin then another pin to connect.
         </p>
@@ -77,6 +75,11 @@
       <section class="board-wrap">
         <canvas id="board" width="1600" height="1000"></canvas>
       </section>
+
+      <aside class="summary-panel">
+        <h2>Element Count</h2>
+        <ul id="elementCountsList" class="count-list"></ul>
+      </aside>
     </main>
 
     <script src="app.js"></script>
