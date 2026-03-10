@@ -202,3 +202,47 @@ button:hover {
   border: 1px solid #d9dee5;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
+
+.inline-dialog {
+  border: 1px solid #c7ced8;
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.15);
+  min-width: 280px;
+}
+
+.inline-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.3);
+}
+
+.inline-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inline-dialog-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2a37;
+}
+
+.inline-dialog-input {
+  border: 1px solid #c7ced8;
+  border-radius: 6px;
+  height: 34px;
+  padding: 0 8px;
+  font-size: 13px;
+  width: 100%;
+}
+
+.inline-dialog-input:focus {
+  outline: 2px solid #a5c2ef;
+  outline-offset: 1px;
+}
+
+.inline-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

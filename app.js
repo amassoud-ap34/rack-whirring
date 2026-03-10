@@ -35,6 +35,9 @@ const ui = {
   applyTransform: $('applyTransformBtn'),
   deleteSelected: $('deleteSelectedBtn'),
   elementCountsList: $('elementCountsList'),
+  editLabelDialog: $('editLabelDialog'),
+  editLabelInput: $('editLabelInput'),
+  editLabelCancelBtn: $('editLabelCancelBtn'),
 };
 
 const symbolPresets = {
@@ -1509,15 +1512,24 @@ function editSelectedLabel() {
   if (!state.selected || state.selected.type !== 'element') return;
   const element = state.elements.find((item) => item.id === state.selected.id);
   if (!element || element.type !== 'symbol') return;
-  
+
   const currentLabel = symbolDisplayLabel(element);
-  const newLabel = window.prompt('Enter new label for this element:', currentLabel);
-  
-  if (newLabel !== null && newLabel.trim()) {
-    if (!element.meta) element.meta = {};
-    element.meta.customLabel = newLabel.trim();
-    redraw();
+  ui.editLabelInput.value = currentLabel;
+  ui.editLabelDialog.showModal();
+  ui.editLabelInput.select();
+
+  function onClose() {
+    if (ui.editLabelDialog.returnValue === 'ok') {
+      const newLabel = ui.editLabelInput.value.trim();
+      if (newLabel) {
+        if (!element.meta) element.meta = {};
+        element.meta.customLabel = newLabel;
+        redraw();
+      }
+    }
+    ui.editLabelDialog.removeEventListener('close', onClose);
   }
+  ui.editLabelDialog.addEventListener('close', onClose);
 }
 
 function placeSymbol(kind, x, y) {
@@ -1994,6 +2006,10 @@ function bindEvents() {
   ui.saveJson.addEventListener('click', saveJson);
   ui.loadJson.addEventListener('change', loadJson);
   ui.exportPng.addEventListener('click', exportPng);
+  ui.editLabelCancelBtn.addEventListener('click', () => {
+    ui.editLabelDialog.returnValue = '';
+    ui.editLabelDialog.close();
+  });
 
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('pointermove', onPointerMove);
