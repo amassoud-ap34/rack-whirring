@@ -26,9 +26,9 @@ const ui = {
   lineWidthValue: $('lineWidthValue'),
   saveJson: $('saveJsonBtn'),
   loadJson: $('loadJsonInput'),
+  openProject: $('openProjectBtn'),
   exportPng: $('exportPngBtn'),
   newBtn: $('newBtn'),
-  shareLink: $('shareLinkBtn'),
   selectedWidthU: $('selectedWidthU'),
   selectedHeightU: $('selectedHeightU'),
   selectedRotation: $('selectedRotation'),
@@ -584,14 +584,6 @@ function buildPayload() {
     nodes: state.nodes,
     connections: state.connections,
   };
-}
-
-function encodeShareData(payload) {
-  return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-}
-
-function decodeShareData(encoded) {
-  return JSON.parse(decodeURIComponent(escape(atob(encoded))));
 }
 
 function normalizeOldShape(shape) {
@@ -1553,20 +1545,6 @@ function updateHoveredPin(pos) {
   state.hoveredPin = pin ? { ...pin, label: pin.label || pin.id } : null;
 }
 
-function tryLoadFromShareLink() {
-  const hash = window.location.hash || '';
-  if (!hash.startsWith('#d=')) return;
-
-  try {
-    const parsed = decodeShareData(hash.slice(3));
-    applyLoadedData(parsed);
-    resetTransientState();
-    redraw();
-  } catch {
-    window.alert('Could not load drawing from shared link.');
-  }
-}
-
 function orthogonalizeBend(lastPoint, clickedPoint) {
   const dx = Math.abs(clickedPoint.x - lastPoint.x);
   const dy = Math.abs(clickedPoint.y - lastPoint.y);
@@ -1875,29 +1853,6 @@ function exportPng() {
   link.click();
 }
 
-async function shareLink() {
-  try {
-    const encoded = encodeShareData(buildPayload());
-    const baseUrl = `${window.location.origin}${window.location.pathname}`;
-    const link = `${baseUrl}#d=${encoded}`;
-
-    if (link.length > 18000) {
-      window.alert(
-        'This drawing is too large for a URL link. Please use Save JSON instead.',
-      );
-      return;
-    }
-
-    await navigator.clipboard.writeText(link);
-    window.alert('Share link copied to clipboard.');
-  } catch {
-    const fallback = `${window.location.href.split('#')[0]}#d=${encodeShareData(
-      buildPayload(),
-    )}`;
-    window.prompt('Copy this share link:', fallback);
-  }
-}
-
 function bindEvents() {
   refreshToolsList();
 
@@ -1950,10 +1905,12 @@ function bindEvents() {
   ui.applyTransform.addEventListener('click', applyTransformToSelected);
   ui.deleteSelected.addEventListener('click', deleteSelected);
   ui.newBtn.addEventListener('click', clearAll);
+  if (ui.openProject && ui.loadJson) {
+    ui.openProject.addEventListener('click', () => ui.loadJson.click());
+  }
   ui.saveJson.addEventListener('click', saveJson);
   ui.loadJson.addEventListener('change', loadJson);
   ui.exportPng.addEventListener('click', exportPng);
-  ui.shareLink.addEventListener('click', shareLink);
 
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('pointermove', onPointerMove);
@@ -1974,5 +1931,4 @@ function bindEvents() {
 
 loadCustomElements();
 bindEvents();
-tryLoadFromShareLink();
 redraw();

@@ -33,8 +33,7 @@ body {
   align-items: center;
 }
 
-button,
-.file-btn {
+button {
   border: 1px solid #c7ced8;
   background: #fff;
   color: #1f2a37;
@@ -44,13 +43,8 @@ button,
   cursor: pointer;
 }
 
-button:hover,
-.file-btn:hover {
+button:hover {
   background: #f0f4f8;
-}
-
-#loadJsonInput {
-  display: none;
 }
 
 .layout {
