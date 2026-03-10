@@ -413,6 +413,10 @@ function nonNegativeIntValue(input, fallback) {
 }
 
 function symbolDisplayLabel(element) {
+  if (element.meta?.customLabel) {
+    return element.meta.customLabel;
+  }
+
   if (typeof element.kind === 'string' && element.kind.startsWith('custom-')) {
     return element.meta?.label || symbolLabels[element.kind] || 'CST';
   }
@@ -564,12 +568,27 @@ const state = {
   labelDrag: null,
   wireDraft: null,
   hoveredPin: null,
+  clipboard: null,
+  gridSnapping: true,
 };
 
 const uid = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const toPixels = (units) => units * GRID_UNIT;
 const toUnits = (px) => Math.max(MIN_U, Number((px / GRID_UNIT).toFixed(2)));
 const clampU = (value) => Math.max(MIN_U, Number.isFinite(value) ? value : MIN_U);
+
+function snapToGrid(value) {
+  if (!state.gridSnapping) return value;
+  return Math.round(value / GRID_UNIT) * GRID_UNIT;
+}
+
+function snapPointToGrid(point) {
+  if (!state.gridSnapping) return point;
+  return {
+    x: snapToGrid(point.x),
+    y: snapToGrid(point.y),
+  };
+}
 
 function getPos(event) {
   const rect = canvas.getBoundingClientRect();
@@ -1461,9 +1480,54 @@ function deleteSelected() {
   redraw();
 }
 
+function copySelected() {
+  if (!state.selected || state.selected.type !== 'element') return;
+  const element = state.elements.find((item) => item.id === state.selected.id);
+  if (!element) return;
+  state.clipboard = JSON.parse(JSON.stringify(element));
+}
+
+function pasteFromClipboard() {
+  if (!state.clipboard) return;
+  
+  const newElement = JSON.parse(JSON.stringify(state.clipboard));
+  newElement.id = uid();
+  newElement.x += GRID_UNIT * 2;
+  newElement.y += GRID_UNIT * 2;
+  
+  if (state.gridSnapping) {
+    newElement.x = snapToGrid(newElement.x);
+    newElement.y = snapToGrid(newElement.y);
+  }
+  
+  state.elements.push(newElement);
+  selectElement(newElement);
+  redraw();
+}
+
+function editSelectedLabel() {
+  if (!state.selected || state.selected.type !== 'element') return;
+  const element = state.elements.find((item) => item.id === state.selected.id);
+  if (!element || element.type !== 'symbol') return;
+  
+  const currentLabel = symbolDisplayLabel(element);
+  const newLabel = window.prompt('Enter new label for this element:', currentLabel);
+  
+  if (newLabel !== null && newLabel.trim()) {
+    if (!element.meta) element.meta = {};
+    element.meta.customLabel = newLabel.trim();
+    redraw();
+  }
+}
+
 function placeSymbol(kind, x, y) {
   const preset = symbolPresets[kind];
   let meta = null;
+
+  if (state.gridSnapping) {
+    x = snapToGrid(x);
+    y = snapToGrid(y);
+  }
 
   const customDef = customElementDefs[kind];
   if (customDef) {
@@ -1548,10 +1612,17 @@ function updateHoveredPin(pos) {
 function orthogonalizeBend(lastPoint, clickedPoint) {
   const dx = Math.abs(clickedPoint.x - lastPoint.x);
   const dy = Math.abs(clickedPoint.y - lastPoint.y);
+  let bendPoint;
   if (dx >= dy) {
-    return { x: clickedPoint.x, y: lastPoint.y };
+    bendPoint = { x: clickedPoint.x, y: lastPoint.y };
+  } else {
+    bendPoint = { x: lastPoint.x, y: clickedPoint.y };
   }
-  return { x: lastPoint.x, y: clickedPoint.y };
+  
+  if (state.gridSnapping) {
+    return snapPointToGrid(bendPoint);
+  }
+  return bendPoint;
 }
 
 function startWireDraft(resolved) {
@@ -1763,10 +1834,22 @@ function onPointerMove(event) {
     if (!element) return;
     const dx = pos.x - state.dragOffsetX;
     const dy = pos.y - state.dragOffsetY;
-    element.x += dx;
-    element.y += dy;
-    state.dragOffsetX = pos.x;
-    state.dragOffsetY = pos.y;
+    
+    if (state.gridSnapping) {
+      const newX = snapToGrid(element.x + dx);
+      const newY = snapToGrid(element.y + dy);
+      if (newX !== element.x || newY !== element.y) {
+        element.x = newX;
+        element.y = newY;
+        state.dragOffsetX = pos.x;
+        state.dragOffsetY = pos.y;
+      }
+    } else {
+      element.x += dx;
+      element.y += dy;
+      state.dragOffsetX = pos.x;
+      state.dragOffsetY = pos.y;
+    }
     redraw();
     return;
   }
@@ -1917,6 +2000,15 @@ function bindEvents() {
   canvas.addEventListener('pointerup', onPointerUp);
   canvas.addEventListener('pointerleave', onPointerLeave);
 
+  canvas.addEventListener('dblclick', (event) => {
+    const pos = getPos(event);
+    const labelHit = findSymbolLabelHit(pos.x, pos.y);
+    if (labelHit) {
+      selectElement(labelHit);
+      editSelectedLabel();
+    }
+  });
+
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Delete' || event.key === 'Backspace') {
       deleteSelected();
@@ -1925,6 +2017,32 @@ function bindEvents() {
     if (event.key === 'Escape' && state.wireDraft) {
       state.wireDraft = null;
       redraw();
+      return;
+    }
+    
+    if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+      event.preventDefault();
+      copySelected();
+      return;
+    }
+    
+    if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+      event.preventDefault();
+      pasteFromClipboard();
+      return;
+    }
+    
+    if (event.key === 'F2' && state.selected && state.selected.type === 'element') {
+      event.preventDefault();
+      editSelectedLabel();
+      return;
+    }
+    
+    if (event.key === 'g' || event.key === 'G') {
+      state.gridSnapping = !state.gridSnapping;
+      const status = state.gridSnapping ? 'ON' : 'OFF';
+      console.log(`Grid snapping: ${status}`);
+      return;
     }
   });
 }
