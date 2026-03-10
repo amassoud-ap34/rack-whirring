@@ -84,6 +84,17 @@
       </aside>
     </main>
 
+    <dialog id="editLabelDialog" class="inline-dialog">
+      <form method="dialog" class="inline-dialog-form">
+        <label for="editLabelInput" class="inline-dialog-label">Element label</label>
+        <input id="editLabelInput" type="text" class="inline-dialog-input" autocomplete="off" />
+        <div class="inline-dialog-actions">
+          <button type="submit" value="ok">OK</button>
+          <button type="button" id="editLabelCancelBtn">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="app.js"></script>
   </body>
 </html>
